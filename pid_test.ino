@@ -7,9 +7,9 @@
  *  Cyclic output with process value, output (0/100%), set point for arduino serial plotter
  *  
  *  Send commands via serial monitor : 
- *  - "M" for set PID to manual mode, "A" for automatic mode, "S34" for fix setpoint at 34.0
- *  - "P2.55" to set kp at 2.55, "I2" ti set ki at 2.0, "D0.2" to set kd at 0.2 
- *  - "W" write currents params (SP, kp, ki and kd) to EEPROM
+ *  - "MAN" for set PID to manual mode, "AUTO" for automatic mode, "SP 34.2" for fix setpoint at 34.2
+ *  - "KP 2.55" to set kp at 2.55, "KI 2" ti set ki at 2.0, "KD 0.2" to set kd at 0.2 
+ *  - "SAVE" write currents params (SP, kp, ki and kd) to EEPROM
  *  
  *  This code is licensed under the MIT license : http://opensource.org/licenses/MIT
  */
@@ -43,6 +43,9 @@ struct PidParams {
 };
 
 // some vars
+// serial cmd
+String s_cmd = "";
+String s_arg = "";
 // LCD: address to 0x27 for a 20 chars and 4 line display
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 // ds18b20
@@ -71,7 +74,8 @@ void lcd_line(byte line, String msg) {
 void setup() {
   // init serial
   Serial.begin(9600);
-  Serial.println("system start");
+  Serial.setTimeout(5);
+  Serial.println(F("system start"));
   // init ds18b20
   sensors.begin();
   // init LCD
@@ -93,52 +97,62 @@ void setup() {
 void loop() {
   // check command
   while (Serial.available() > 0) {
-    // read the incoming byte:
-    switch (Serial.read()) {
-      case 'A':
-      case 'a':
-        Serial.println("PID set to auto mode");
-        myPID.SetMode(AUTOMATIC);
-        break;
-      case 'M':
-      case 'm':
-        Serial.println("PID set to manual mode");
-        myPID.SetMode(MANUAL);
-        break;
-      case 'O':
-      case 'o':
-        pid_out = Serial.parseFloat();
-        Serial.println("PID out set at " + String(pid_out));
-        break;
-      case 'P':
-      case 'p':
-        pid_p.kp = Serial.parseFloat();
-        Serial.println("PID kp set at " + String(pid_p.kp));
-        break;
-      case 'I':
-      case 'i':
-        pid_p.ki = Serial.parseFloat();
-        Serial.println("PID ki set at " + String(pid_p.ki));
-        break;
-      case 'D':
-      case 'd':
-        pid_p.kd = Serial.parseFloat();
-        Serial.println("PID kd set at " + String(pid_p.kd));
-        break;
-      case 'S':
-      case 's':
-        pid_sp = Serial.parseFloat();
-        Serial.println("PID SetPoint set at " + String(pid_sp));
-        break;
-      case 'W':
-      case 'w':
-        Serial.println("Write params (SP, kp, ki and kd) to EEPROM");
-        // store magic number, PID params and setpoint
-        EEPROM.put(EEPROM_AD_MAGIG_NB, (uint16_t) EEPROM_MAGIC_NB);
-        EEPROM.put(EEPROM_AD_PID_P, pid_p);
-        EEPROM.put(EEPROM_AD_PID_SP, pid_sp);
-        break;
+    // read command
+    s_cmd += Serial.readStringUntil("\n");
+    // skip command not ended with "\r\n"
+    if (! s_cmd.endsWith("\r\n"))
+      break;
+    // remove trailling \r\n, force case
+    s_cmd.trim();
+    s_cmd.toUpperCase();
+    // check for command argument (cmd [space char] [arg])
+    int index_space  = s_cmd.indexOf(" ");
+    if (index_space != -1)
+      s_arg = s_cmd.substring(index_space);
+    // check command
+    if (s_cmd.startsWith("AUTO")) {
+      Serial.println(F("PID set to auto mode"));
+      myPID.SetMode(AUTOMATIC);
     }
+    else if (s_cmd.startsWith("MAN")) {
+      Serial.println(F("PID set to manual mode"));
+      myPID.SetMode(MANUAL);
+    }
+    else if (s_cmd.startsWith("OUT")) {
+      pid_out = s_arg.toFloat();
+      Serial.print(F("PID out set at "));
+      Serial.println(pid_out);
+    }
+    else if (s_cmd.startsWith("SP")) {
+      pid_sp = s_arg.toFloat();
+      Serial.print(F("PID SetPoint set at "));
+      Serial.println(pid_sp);
+    }
+    else if (s_cmd.startsWith("KP")) {
+      pid_p.kp = s_arg.toFloat();
+      Serial.print(F("PID kp set at "));
+      Serial.println(pid_p.kp);
+    }
+    else if (s_cmd.startsWith("KI")) {
+      pid_p.ki = s_arg.toFloat();
+      Serial.print(F("PID ki set at "));
+      Serial.println(pid_p.ki);
+    }
+    else if (s_cmd.startsWith("KD")) {
+      pid_p.kd = s_arg.toFloat();
+      Serial.print(F("PID kd set at "));
+      Serial.println(pid_p.kd);
+    }
+    else if (s_cmd.startsWith("SAVE")) {
+      // store magic number, PID params and setpoint
+      EEPROM.put(EEPROM_AD_MAGIG_NB, (uint16_t) EEPROM_MAGIC_NB);
+      EEPROM.put(EEPROM_AD_PID_P, pid_p);
+      EEPROM.put(EEPROM_AD_PID_SP, pid_sp);
+      Serial.println(F("Write params (SP, kp, ki and kd) to EEPROM"));
+    }
+    // reset for next one
+    s_cmd = "";
+    s_arg = "";
   }
   
   // read ds18b20
