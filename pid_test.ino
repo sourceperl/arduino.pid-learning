@@ -1,16 +1,16 @@
-/* 
+/*
  *  PID test platform on Arduino UNO
  *  Temperature Control platform :
  *  - Heater module is a "PTC ceramic 5v 50°C" command by PWM and a MOSFET (on velleman board VMA411)
- *  - Sensor is a ds18b20.
- *  
+ *  - Sensor is a thermistor NTC-MF52 3950 (on velleman board VMA320)
+ *
  *  Cyclic output with process value, output (0/100%), set point for arduino serial plotter
- *  
- *  Send commands via serial monitor : 
+ *
+ *  Send commands via serial monitor :
  *  - "MAN" for set PID to manual mode, "AUTO" for automatic mode, "SP 34.2" for fix setpoint at 34.2
- *  - "KP 2.55" to set kp at 2.55, "KI 2" ti set ki at 2.0, "KD 0.2" to set kd at 0.2 
+ *  - "KP 2.55" to set kp at 2.55, "KI 2" ti set ki at 2.0, "KD 0.2" to set kd at 0.2
  *  - "SAVE" write currents params (SP, kp, ki and kd) to EEPROM
- *  
+ *
  *  This code is licensed under the MIT license : http://opensource.org/licenses/MIT
  */
 
@@ -19,16 +19,22 @@
 #include <PID_v1.h>
 // from https://github.com/fdebrabander/Arduino-LiquidCrystal-I2C-library
 #include <LiquidCrystal_I2C.h>
-// from https://www.pjrc.com/teensy/td_libs_OneWire.html
-#include <OneWire.h>
-// from https://github.com/milesburton/Arduino-Temperature-Control-Library
-#include <DallasTemperature.h>
 
 // some const
 // I/O
 #define ONE_WIRE_BUS        2
+// thermistance
+#define THERM_INPUT         A0
+#define THERM_R0            10E3
+#define THERM_T0            25
+#define THERM_B_COEF        3950
+#define THERM_R_PULL        10E3
+// heater output
 #define OUT_PWM             3
+// LCD display
 #define LCD_LINE_SIZE       20
+#define MAX_CMD_SIZE        64
+// EEPROM storage
 #define EEPROM_MAGIC_NB     0xAA55
 #define EEPROM_AD_MAGIG_NB  0
 #define EEPROM_AD_PID_P     sizeof(uint16_t)
@@ -44,13 +50,11 @@ struct PidParams {
 
 // some vars
 // serial cmd
+int inByte = 0;
 String s_cmd = "";
 String s_arg = "";
 // LCD: address to 0x27 for a 20 chars and 4 line display
 LiquidCrystal_I2C lcd(0x27, 20, 4);
-// ds18b20
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
 // PID
 PidParams pid_p;
 double pid_sp = 32.0;
@@ -74,10 +78,10 @@ void lcd_line(byte line, String msg) {
 void setup() {
   // init serial
   Serial.begin(9600);
-  Serial.setTimeout(5);
+  //Serial.setTimeout(5);
   Serial.println(F("system start"));
-  // init ds18b20
-  sensors.begin();
+  // init IO
+  pinMode(THERM_INPUT, INPUT);
   // init LCD
   lcd.init();
   lcd.backlight();
@@ -97,8 +101,21 @@ void setup() {
 void loop() {
   // check command
   while (Serial.available() > 0) {
-    // read command
-    s_cmd += Serial.readStringUntil("\n");
+    // receive loop
+    while (true) {
+      inByte = Serial.read();
+      // no more data
+      if (inByte == -1)
+        break;
+      // add data to s_cmd
+      s_cmd += (char) inByte;
+      // limit size to MAX_CMD_SIZE
+      if (s_cmd.length() > MAX_CMD_SIZE)
+        s_cmd.remove(0, s_cmd.length() - MAX_CMD_SIZE);
+      // pause receive loop if \n occur
+      if (inByte == '\n')
+        break;
+    }
     // skip command not ended with "\r\n"
     if (! s_cmd.endsWith("\r\n"))
       break;
@@ -154,10 +171,16 @@ void loop() {
     s_cmd = "";
     s_arg = "";
   }
-  
-  // read ds18b20
-  sensors.requestTemperatures();
-  pid_pv = sensors.getTempCByIndex(0);
+
+  // read Thermistor
+  float therm_r = THERM_R_PULL / (1023 / (float) analogRead(THERM_INPUT) - 1);
+  float steinhart = therm_r / THERM_R0;   // (R/Ro)
+  steinhart = log(steinhart);             // ln(R/Ro)
+  steinhart /= THERM_B_COEF;              // 1/B * ln(R/Ro)
+  steinhart += 1.0 / (THERM_T0 + 273.15); // + (1/To)
+  steinhart = 1.0 / steinhart;            // invert
+  steinhart -= 273.15;                    // convert to C
+  pid_pv = steinhart;
 
   // update PID and output
   myPID.SetTunings(pid_p.kp, pid_p.ki, pid_p.kd);
@@ -173,4 +196,7 @@ void loop() {
 
   // print for arduino serial plotter
   Serial.println(String(pid_pv) + "," + String(pid_out) + "," + String(pid_sp));
+
+  // wait before next loop
+  delay(1000);
 }
