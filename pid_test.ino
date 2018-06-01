@@ -23,6 +23,8 @@
 // some const
 // I/O
 #define ONE_WIRE_BUS        2
+// serial commands
+#define CMD_TIMEOUT         10E3
 // thermistance
 #define THERM_INPUT         A0
 #define THERM_R0            10E3
@@ -51,6 +53,7 @@ struct PidParams {
 // some vars
 // serial cmd
 int inByte = 0;
+unsigned long t_last_byte = 0;
 String s_cmd = "";
 String s_arg = "";
 // LCD: address to 0x27 for a 20 chars and 4 line display
@@ -107,6 +110,10 @@ void loop() {
       // no more data
       if (inByte == -1)
         break;
+      // reset command buffer if the last rx is too old
+      if (millis() - t_last_byte > CMD_TIMEOUT)
+        s_cmd = "";
+      t_last_byte = millis();
       // add data to s_cmd
       s_cmd += (char) inByte;
       // limit size to MAX_CMD_SIZE
