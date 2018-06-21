@@ -22,17 +22,17 @@
 
 // some const
 // I/O
-#define ONE_WIRE_BUS        2
+#define THERM_INPUT         A0
+#define THERM_VCC           A1
+#define THERM_GND           A2
+#define OUT_PWM             11
 // serial commands
 #define CMD_TIMEOUT         10E3
 // thermistance
-#define THERM_INPUT         A0
 #define THERM_R0            10E3
 #define THERM_T0            25
 #define THERM_B_COEF        3950
 #define THERM_R_PULL        10E3
-// heater output
-#define OUT_PWM             3
 // LCD display
 #define LCD_LINE_SIZE       20
 #define MAX_CMD_SIZE        64
@@ -85,6 +85,10 @@ void setup() {
   Serial.println(F("system start"));
   // init IO
   pinMode(THERM_INPUT, INPUT);
+  pinMode(THERM_VCC, OUTPUT);
+  digitalWrite(THERM_VCC, HIGH);
+  pinMode(THERM_GND, OUTPUT);
+  digitalWrite(THERM_GND, LOW);
   // init LCD
   lcd.init();
   lcd.backlight();
